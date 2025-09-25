@@ -1,9 +1,27 @@
+#spring:
+#  datasource:
+#    url: ${SPRING_DATASOURCE_URL}
+#    username: ${SPRING_DATASOURCE_USERNAME}
+#    password: ${SPRING_DATASOURCE_PASSWORD}
+#  jpa:
+#    hibernate:
+#      ddl-auto: update
+#    show-sql: true
+
+
+#개발용
 spring:
   datasource:
-    url: ${SPRING_DATASOURCE_URL}
-    username: ${SPRING_DATASOURCE_USERNAME}
-    password: ${SPRING_DATASOURCE_PASSWORD}
+    url: jdbc:mysql://localhost:3306/devops1?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true
+    username: zjxmsl
+    password: wpDlf@h3dk
   jpa:
     hibernate:
-      ddl-auto: update
-    show-sql: true
+      ddl-auto: update     # 개발용: 테이블 자동 생성/업데이트
+    show-sql: true          # 쿼리 로그 출력
+    properties:
+      hibernate:
+        format_sql: true
+  sql:
+    init:
+      mode: always           # 초기 SQL 실행
