@@ -1,0 +1,48 @@
+name: Spring Boot CI/CD
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1️⃣ 코드 체크아웃
+      - uses: actions/checkout@v3
+
+      # 2️⃣ JDK 설정
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # 3️⃣ Gradle/Maven 빌드
+      - name: Build with Maven
+        run: mvn clean package -DskipTests
+
+      # 4️⃣ 서버로 JAR 복사
+      - name: Copy JAR to server
+        uses: appleboy/scp-action@v0.1.5
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          source: "target/*.jar"
+          target: "/home/opc/springboot-app/"
+
+      # 5️⃣ 서버에서 Docker 컨테이너 배포
+      - name: Deploy Docker container
+        uses: appleboy/ssh-action@v0.1.5
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            cd /home/opc/springboot-app
+            docker stop springboot-app || true
+            docker rm springboot-app || true
+            docker build -t springboot-app .
+            docker run -d -p 8080:8080 --name springboot-app springboot-app
