@@ -20,6 +20,10 @@ jobs:
           java-version: 17
 
       # 3️⃣ Gradle 빌드 (캐시 포함)
+
+      - name: Grant execute permission to Gradle wrapper
+        run: chmod +x ./gradlew
+        
       - name: Build with Gradle
         run: ./gradlew clean build -x test --no-daemon
 
