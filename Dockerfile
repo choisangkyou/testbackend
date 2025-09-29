@@ -1,27 +1,3 @@
-
-#FROM gradle:7.6.3-jdk17 AS builder
-#WORKDIR /app
-#
-## Gradle 캐시 디렉토리 공유 (선택)
-#VOLUME ["/home/gradle/.gradle"]
-#
-#COPY . .
-#
-## 빌드 전에 캐시 강제로 초기화
-#RUN gradle clean build --no-daemon --refresh-dependencies
-#
-## 실제 빌드
-##RUN gradle build --no-daemon
-#RUN ./gradlew clean build --no-daemon --refresh-dependencies
-#
-#FROM openjdk:17-jdk-slim
-#WORKDIR /app
-#COPY --from=builder /app/build/libs/*.jar app.jar
-#EXPOSE 8080
-##ENTRYPOINT ["java","-jar","app.jar"]
-#ENTRYPOINT ["java","-Xshare:off","-jar","app.jar"]
-
-
 # ==========================
 # 1단계: Build Stage
 # ==========================
