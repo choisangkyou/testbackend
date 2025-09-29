@@ -1,48 +1,328 @@
-name: Spring Boot CI/CD
+name: Deploy testbackend to OCI
 
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:  # 수동 실행 가능
+
+env:
+  DEPLOY_PATH: /home/opc/testbackend
+  APP_NAME: testbackend
 
 jobs:
-  build-deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
-
+    
     steps:
-      # 1️⃣ 코드 체크아웃
-      - uses: actions/checkout@v3
-
-      # 2️⃣ JDK 설정
-      - name: Set up JDK 17
+      # ==========================================
+      # 1단계: 코드 체크아웃
+      # ==========================================
+      - name: 📥 Checkout code
+        uses: actions/checkout@v3
+      
+      # ==========================================
+      # 2단계: JDK 17 설정 (Gradle용)
+      # ==========================================
+      - name: ☕ Set up JDK 17
         uses: actions/setup-java@v3
         with:
-          distribution: temurin
-          java-version: 17
-
-      # 3️⃣ Gradle/Maven 빌드
-      - name: Build with Maven
-        run: mvn clean package -DskipTests
-
-      # 4️⃣ 서버로 JAR 복사
-      - name: Copy JAR to server
-        uses: appleboy/scp-action@v0.1.5
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          source: "target/*.jar"
-          target: "/home/opc/springboot-app/"
-
-      # 5️⃣ 서버에서 Docker 컨테이너 배포
-      - name: Deploy Docker container
-        uses: appleboy/ssh-action@v0.1.5
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'  # Gradle 캐시 활성화
+      
+      # ==========================================
+      # 3단계: Gradle 빌드 권한 부여
+      # ==========================================
+      - name: 🔧 Grant execute permission for gradlew
+        run: chmod +x gradlew
+      
+      # ==========================================
+      # 4단계: Gradle 빌드 (로컬에서는 안함, 서버에서 Docker로 빌드)
+      # ==========================================
+      # 로컬 빌드는 스킵하고 소스코드만 전송
+      # Docker 내부에서 빌드하는 것이 환경 일관성 유지에 유리
+      
+      # ==========================================
+      # 5단계: 배포 디렉토리 준비
+      # ==========================================
+      - name: 📁 Prepare deployment directory
+        uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
-            cd /home/opc/springboot-app
-            docker stop springboot-app || true
-            docker rm springboot-app || true
-            docker build -t springboot-app .
-            docker run -d -p 8080:8080 --name springboot-app springboot-app
+            echo "========================================"
+            echo "📁 Creating deployment directory"
+            echo "========================================"
+            mkdir -p ${{ env.DEPLOY_PATH }}
+            echo "✅ Directory ready: ${{ env.DEPLOY_PATH }}"
+      
+      # ==========================================
+      # 6단계: 프로젝트 파일 전송 (전체 소스)
+      # ==========================================
+      - name: 📤 Transfer project files
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          source: "src/,build.gradle,settings.gradle,gradlew,gradlew.bat,gradle/,Dockerfile,docker-compose.yml"
+          target: ${{ env.DEPLOY_PATH }}
+          strip_components: 0
+          rm: false
+      
+      # ==========================================
+      # 7단계: 환경변수 파일 생성
+      # ==========================================
+      - name: 🔐 Create .env file with secrets
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            cd ${{ env.DEPLOY_PATH }}
+            
+            echo "========================================"
+            echo "🔐 Creating .env file"
+            echo "========================================"
+            
+            cat > .env << 'EOF'
+            # Application Settings
+            APP_PORT=8080
+            SPRING_PROFILES_ACTIVE=prod
+            
+            # Database Settings
+            DB_PORT=3306
+            MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD }}
+            MYSQL_DATABASE=${{ secrets.MYSQL_DATABASE }}
+            MYSQL_USER=${{ secrets.MYSQL_USER }}
+            MYSQL_PASSWORD=${{ secrets.MYSQL_PASSWORD }}
+            
+            # JPA Settings
+            JPA_DDL_AUTO=update
+            JPA_SHOW_SQL=false
+            EOF
+            
+            echo "✅ .env file created successfully"
+      
+      # ==========================================
+      # 8단계: 기존 서비스 중지
+      # ==========================================
+      - name: 🛑 Stop existing services
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            cd ${{ env.DEPLOY_PATH }}
+            
+            echo "========================================"
+            echo "🛑 Stopping existing containers"
+            echo "========================================"
+            
+            if [ -f docker-compose.yml ]; then
+              docker-compose down 2>/dev/null || echo "No containers to stop"
+            fi
+            
+            echo "✅ Cleanup completed"
+      
+      # ==========================================
+      # 9단계: 이미지 정리
+      # ==========================================
+      - name: 🧹 Clean up old Docker images
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            echo "========================================"
+            echo "🧹 Removing old images"
+            echo "========================================"
+            docker image prune -af --filter "until=24h" || true
+            echo "✅ Old images removed"
+      
+      # ==========================================
+      # 10단계: Docker Compose 빌드 및 시작
+      # ==========================================
+      - name: 🚀 Build and start services
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          command_timeout: 30m
+          script: |
+            cd ${{ env.DEPLOY_PATH }}
+            
+            echo "========================================"
+            echo "🔨 Building Docker images"
+            echo "========================================"
+            docker-compose build --no-cache
+            
+            echo ""
+            echo "========================================"
+            echo "🚀 Starting services"
+            echo "========================================"
+            docker-compose up -d
+            
+            echo ""
+            echo "========================================"
+            echo "⏳ Waiting for services to initialize"
+            echo "========================================"
+            echo "Waiting 30 seconds for containers to start..."
+            sleep 30
+            
+            echo ""
+            echo "========================================"
+            echo "📊 Current container status"
+            echo "========================================"
+            docker-compose ps
+      
+      # ==========================================
+      # 11단계: 헬스체크 및 검증
+      # ==========================================
+      - name: 🏥 Health check and verification
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            cd ${{ env.DEPLOY_PATH }}
+            
+            echo "========================================"
+            echo "🏥 Performing health check"
+            echo "========================================"
+            
+            MAX_ATTEMPTS=20
+            ATTEMPT=0
+            HEALTH_URL="http://localhost:8080/actuator/health"
+            FALLBACK_URL="http://localhost:8080"
+            
+            while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+              ATTEMPT=$((ATTEMPT + 1))
+              echo "⏳ Health check attempt $ATTEMPT/$MAX_ATTEMPTS..."
+              
+              # 컨테이너 실행 확인
+              if ! docker-compose ps | grep -E "testbackend-app.*Up" > /dev/null; then
+                echo "❌ Application container not running"
+                echo ""
+                echo "Container status:"
+                docker-compose ps
+                echo ""
+                echo "Application logs:"
+                docker-compose logs --tail=50 app
+                exit 1
+              fi
+              
+              # Actuator 헬스체크 시도
+              if curl -f -s "$HEALTH_URL" > /dev/null 2>&1; then
+                echo ""
+                echo "========================================"
+                echo "✅ APPLICATION IS HEALTHY!"
+                echo "========================================"
+                echo ""
+                curl -s "$HEALTH_URL" | jq '.' 2>/dev/null || curl -s "$HEALTH_URL"
+                echo ""
+                echo "📄 Recent application logs:"
+                docker-compose logs --tail=30 app
+                echo ""
+                echo "📊 Container status:"
+                docker-compose ps
+                echo ""
+                echo "💻 Resource usage:"
+                docker stats --no-stream --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}" testbackend-app testbackend-db 2>/dev/null || echo "Stats not available"
+                echo ""
+                echo "========================================"
+                echo "🎉 DEPLOYMENT SUCCESSFUL!"
+                echo "========================================"
+                echo "🌐 Application URL: http://${{ secrets.DEPLOY_HOST }}:8080"
+                echo "🏥 Health Check: http://${{ secrets.DEPLOY_HOST }}:8080/actuator/health"
+                echo "💾 Database: ${{ secrets.DEPLOY_HOST }}:3306"
+                echo "========================================"
+                exit 0
+              fi
+              
+              # Actuator가 없는 경우 기본 URL 확인
+              if curl -f -s "$FALLBACK_URL" > /dev/null 2>&1; then
+                echo ""
+                echo "========================================"
+                echo "✅ APPLICATION IS RESPONDING!"
+                echo "========================================"
+                echo "⚠️ Note: Actuator health endpoint not available"
+                echo ""
+                echo "📄 Recent application logs:"
+                docker-compose logs --tail=30 app
+                echo ""
+                echo "📊 Container status:"
+                docker-compose ps
+                echo ""
+                echo "========================================"
+                echo "🎉 DEPLOYMENT SUCCESSFUL!"
+                echo "========================================"
+                echo "🌐 Application URL: http://${{ secrets.DEPLOY_HOST }}:8080"
+                echo "========================================"
+                exit 0
+              fi
+              
+              echo "Application not ready yet, waiting..."
+              sleep 10
+            done
+            
+            # 최종 실패
+            echo ""
+            echo "========================================"
+            echo "❌ DEPLOYMENT FAILED"
+            echo "========================================"
+            echo "⚠️ Application did not become healthy within expected time"
+            echo ""
+            echo "📄 Full application logs:"
+            docker-compose logs app
+            echo ""
+            echo "📄 Database logs:"
+            docker-compose logs db
+            echo ""
+            echo "📊 Container status:"
+            docker-compose ps -a
+            echo ""
+            echo "🔍 Network status:"
+            docker network ls
+            echo ""
+            echo "========================================"
+            exit 1
+      
+      # ==========================================
+      # 12단계: 배포 완료 알림 (성공 시)
+      # ==========================================
+      - name: 📢 Deployment summary
+        if: success()
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            cd ${{ env.DEPLOY_PATH }}
+            
+            echo ""
+            echo "============================================"
+            echo "           🎊 DEPLOYMENT SUMMARY 🎊"
+            echo "============================================"
+            echo ""
+            echo "📅 Deployment Time: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+            echo "🌐 Application: http://${{ secrets.DEPLOY_HOST }}:8080"
+            echo "💾 Database: ${{ secrets.DEPLOY_HOST }}:3306"
+            echo ""
+            echo "📦 Running Containers:"
+            docker ps --filter "name=testbackend" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+            echo ""
+            echo "💿 Disk Usage:"
+            df -h ${{ env.DEPLOY_PATH }} | tail -n 1
+            echo ""
+            echo "============================================"
+            echo "✅ All systems operational!"
+            echo "============================================"
