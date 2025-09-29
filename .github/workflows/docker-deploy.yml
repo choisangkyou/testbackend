@@ -44,7 +44,7 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          timeout: 1800   # 30분
+          timeout: 30m
           script: |
             cd /home/opc/testbackend
             # 기존 컨테이너 중지 및 제거
