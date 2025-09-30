@@ -13,7 +13,7 @@ COPY . .
 # gradlew 실행 권한 부여
 RUN chmod +x ./gradlew
 
-# Gradle Wrapper 사용 (없으면 gradle 명령어로 교체) # --refresh-dependencies 제거
+# Gradle Wrapper 사용 (캐시 활용) # --refresh-dependencies 제거
 RUN ./gradlew clean build --no-daemon
 
 # ==========================
