@@ -10,6 +10,9 @@ RUN mkdir -p /home/gradle/.gradle && chown -R gradle:gradle /home/gradle
 # 프로젝트 복사
 COPY . .
 
+# gradlew 실행 권한 부여
+RUN chmod +x ./gradlew
+
 # Gradle Wrapper 사용 (없으면 gradle 명령어로 교체)
 RUN ./gradlew clean build --no-daemon --refresh-dependencies
 
