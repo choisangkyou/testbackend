@@ -1,18 +1,16 @@
-name: Docker Build and Push
+name: Docker Build, Push and Deploy
 
 on:
   push:
     branches:
       - main
-      - dev
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-
     permissions:
-      contents: read      # 코드 읽기
-      packages: write     # GHCR push 권한
+      contents: read
+      packages: write
 
     steps:
       - name: Checkout repository
@@ -35,3 +33,20 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: ghcr.io/${{ github.repository }}/testbackend:latest
+
+  deploy-to-oci:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to OCI via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.OCI_HOST }}
+          username: ${{ secrets.OCI_USER }}
+          key: ${{ secrets.OCI_SSH_KEY }}
+          script: |
+            cd /home/${{ secrets.OCI_USER }}/testbackend
+            docker-compose down
+            docker-compose pull
+            docker-compose up -d
