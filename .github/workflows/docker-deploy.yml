@@ -1,68 +1,315 @@
-name: Docker Build, Push and Deploy
+name: Build and Deploy to OCI via GHCR
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  DEPLOY_PATH: /home/opc/testbackend
 
 jobs:
+  # ==========================================
+  # Job 1: GHCR에 Docker 이미지 빌드 및 푸시
+  # ==========================================
   build-and-push:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-
+    
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # 1. Gradle 캐시 복원
-      - name: Cache Gradle packages
-        uses: actions/cache@v3
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v3
+      
+      - name: 🔐 Log in to GitHub Container Registry
+        uses: docker/login-action@v2
         with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper/
-          key: gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            gradle-
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+      
+      - name: 🏷️ Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v4
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+      
+      - name: 🔨 Build and push Docker image
+        uses: docker/build-push-action@v4
         with:
           context: .
           file: ./Dockerfile
           push: true
-          tags: ghcr.io/${{ github.repository }}/testbackend:latest
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/testbackend:latest
-          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/testbackend:latest,mode=max
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+      
+      - name: ✅ Image build complete
+        run: |
+          echo "========================================"
+          echo "✅ Docker image built and pushed!"
+          echo "========================================"
+          echo "Registry: ${{ env.REGISTRY }}"
+          echo "Image: ${{ env.IMAGE_NAME }}"
+          echo "Tags: ${{ steps.meta.outputs.tags }}"
+          echo "========================================"
 
+  # ==========================================
+  # Job 2: OCI 서버에 배포
+  # ==========================================
   deploy-to-oci:
     needs: build-and-push
     runs-on: ubuntu-latest
-
+    
     steps:
-      - name: Deploy to OCI via SSH
-        uses: appleboy/ssh-action@v1.2.0   
+      # ==========================================
+      # 1. 코드 체크아웃 (docker-compose.yml 가져오기)
+      # ==========================================
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v3
+      
+      # ==========================================
+      # 2. 배포 디렉토리 준비
+      # ==========================================
+      - name: 📁 Prepare deployment directory
+        uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          source: ./docker-compose.yml
-          target: /home/${{ secrets.DEPLOY_USER }}/testbackend/docker-compose.yml
-          timeout: 30m
           script: |
-            cd /home/${{ secrets.DEPLOY_USER }}/testbackend
-            docker-compose down
+            echo "========================================"
+            echo "📁 Preparing deployment directory"
+            echo "========================================"
+            mkdir -p ${{ env.DEPLOY_PATH }}
+            echo "✅ Directory ready: ${{ env.DEPLOY_PATH }}"
+      
+      # ==========================================
+      # 3. docker-compose.yml 전송
+      # ==========================================
+      - name: 📤 Transfer docker-compose.yml
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          source: "docker-compose.yml"
+          target: ${{ env.DEPLOY_PATH }}
+          strip_components: 0
+      
+      # ==========================================
+      # 4. .env 파일 생성 (환경변수)
+      # ==========================================
+      - name: 🔐 Create .env file
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            cd ${{ env.DEPLOY_PATH }}
+            
+            echo "========================================"
+            echo "🔐 Creating .env file"
+            echo "========================================"
+            
+            cat > .env << 'EOF'
+            # Application Settings
+            APP_PORT=8080
+            SPRING_PROFILES_ACTIVE=prod
+            
+            # Database Settings
+            DB_PORT=3306
+            MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD }}
+            MYSQL_DATABASE=${{ secrets.MYSQL_DATABASE }}
+            MYSQL_USER=${{ secrets.MYSQL_USER }}
+            MYSQL_PASSWORD=${{ secrets.MYSQL_PASSWORD }}
+            
+            # JPA Settings
+            JPA_DDL_AUTO=update
+            JPA_SHOW_SQL=false
+            
+            # GHCR Image
+            GHCR_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            EOF
+            
+            echo "✅ .env file created"
+            cat .env
+      
+      # ==========================================
+      # 5. GHCR 로그인 (OCI 서버에서)
+      # ==========================================
+      - name: 🔑 Login to GHCR on OCI server
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            echo "========================================"
+            echo "🔑 Logging in to GHCR"
+            echo "========================================"
+            
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            
+            if [ $? -eq 0 ]; then
+              echo "✅ GHCR login successful"
+            else
+              echo "❌ GHCR login failed"
+              exit 1
+            fi
+      
+      # ==========================================
+      # 6. 기존 서비스 중지
+      # ==========================================
+      - name: 🛑 Stop existing services
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            cd ${{ env.DEPLOY_PATH }}
+            
+            echo "========================================"
+            echo "🛑 Stopping existing services"
+            echo "========================================"
+            
+            if [ -f docker-compose.yml ]; then
+              docker-compose down 2>/dev/null || echo "No services running"
+            fi
+            
+            echo "✅ Services stopped"
+      
+      # ==========================================
+      # 7. 이미지 Pull 및 서비스 시작
+      # ==========================================
+      - name: 🚀 Pull images and start services
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          command_timeout: 30m
+          script: |
+            cd ${{ env.DEPLOY_PATH }}
+            
+            echo "========================================"
+            echo "📥 Pulling latest images from GHCR"
+            echo "========================================"
             docker-compose pull
+            
+            echo ""
+            echo "========================================"
+            echo "🚀 Starting services"
+            echo "========================================"
             docker-compose up -d
+            
+            echo ""
+            echo "========================================"
+            echo "⏳ Waiting for initialization (30s)"
+            echo "========================================"
+            sleep 30
+            
+            echo ""
+            echo "📊 Container status:"
+            docker-compose ps
+      
+      # ==========================================
+      # 8. 이미지 정리
+      # ==========================================
+      - name: 🧹 Clean up old images
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            echo "========================================"
+            echo "🧹 Cleaning old Docker images"
+            echo "========================================"
+            docker image prune -af --filter "until=24h" || true
+            echo "✅ Cleanup completed"
+      
+      # ==========================================
+      # 9. 헬스체크
+      # ==========================================
+      - name: 🏥 Health check
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            cd ${{ env.DEPLOY_PATH }}
+            
+            echo "========================================"
+            echo "🏥 Performing health check"
+            echo "========================================"
+            
+            MAX_ATTEMPTS=20
+            ATTEMPT=0
+            
+            while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+              ATTEMPT=$((ATTEMPT + 1))
+              echo "⏳ Attempt $ATTEMPT/$MAX_ATTEMPTS..."
+              
+              # 컨테이너 실행 확인
+              if ! docker-compose ps | grep -E "testbackend-app.*Up" > /dev/null; then
+                echo "❌ Container not running"
+                docker-compose ps
+                docker-compose logs --tail=50 app
+                exit 1
+              fi
+              
+              # 헬스체크
+              if curl -f http://localhost:8080/actuator/health 2>/dev/null || curl -f http://localhost:8080 2>/dev/null; then
+                echo ""
+                echo "========================================"
+                echo "✅ APPLICATION HEALTHY!"
+                echo "========================================"
+                echo ""
+                echo "📄 Recent logs:"
+                docker-compose logs --tail=30 app
+                echo ""
+                echo "📊 Containers:"
+                docker-compose ps
+                echo ""
+                echo "🖼️ Images:"
+                docker images | grep -E "testbackend|ghcr.io"
+                echo ""
+                echo "💻 Resources:"
+                docker stats --no-stream --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}" testbackend-app testbackend-db 2>/dev/null || true
+                echo ""
+                echo "========================================"
+                echo "🎉 DEPLOYMENT SUCCESSFUL!"
+                echo "========================================"
+                echo "🌐 URL: http://${{ secrets.DEPLOY_HOST }}:8080"
+                echo "🏥 Health: http://${{ secrets.DEPLOY_HOST }}:8080/actuator/health"
+                echo "📦 Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+                echo "========================================"
+                exit 0
+              fi
+              
+              sleep 10
+            done
+            
+            # 실패
+            echo ""
+            echo "========================================"
+            echo "❌ DEPLOYMENT FAILED"
+            echo "========================================"
+            docker-compose logs
+            docker-compose ps -a
+            exit 1
