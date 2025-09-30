@@ -42,11 +42,11 @@ jobs:
       - name: Deploy to OCI via SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.OCI_HOST }}
-          username: ${{ secrets.OCI_USER }}
-          key: ${{ secrets.OCI_SSH_KEY }}
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
-            cd /home/${{ secrets.OCI_USER }}/testbackend
+            cd /home/${{ secrets.DEPLOY_USER }}/testbackend
             docker-compose down
             docker-compose pull
             docker-compose up -d
