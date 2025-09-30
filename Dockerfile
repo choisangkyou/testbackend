@@ -13,8 +13,8 @@ COPY . .
 # gradlew 실행 권한 부여
 RUN chmod +x ./gradlew
 
-# Gradle Wrapper 사용 (없으면 gradle 명령어로 교체)
-RUN ./gradlew clean build --no-daemon --refresh-dependencies
+# Gradle Wrapper 사용 (없으면 gradle 명령어로 교체) # --refresh-dependencies 제거
+RUN ./gradlew clean build --no-daemon
 
 # ==========================
 # 2단계: Runtime Stage
@@ -25,6 +25,10 @@ WORKDIR /app
 # builder에서 빌드 결과물만 복사 (jar)
 COPY --from=builder /app/build/libs/*.jar app.jar
 
-# 컨테이너 실행 시 기본 명령어
-ENTRYPOINT ["java", "-jar", "app.jar"]
+
+# 환경 변수 (OCI 배포 시 주입 가능)
+ENV JAVA_OPTS="-Xms512m -Xmx1024m"
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
+## 컨테이너 실행 시 기본 명령어
+#ENTRYPOINT ["java", "-jar", "app.jar"]
 
