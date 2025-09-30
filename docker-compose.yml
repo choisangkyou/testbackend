@@ -2,7 +2,8 @@ version: '3'
 services:
   app:
 #    build: .
-    image: ghcr.io/choisangkyou/testbackend:latest  # GHCR 이미지 사용.
+#    image: ghcr.io/choisangkyou/testbackend:latest  # GHCR 이미지 사용.
+    image: ${GHCR_IMAGE}  # .env 파일에서 이미지 이름을 가져옴.
     container_name: app-devops1   # 여기서 고정
     ports:
       - "${APP_PORT}:8080"
