@@ -243,7 +243,7 @@ jobs:
             echo "✅ Cleanup completed"
       
       # ==========================================
-      # 9. 헬스체크
+      # 9. 헬스체크 (개선 버전)
       # ==========================================
       - name: 🏥 Health check
         uses: appleboy/ssh-action@v1.0.0
@@ -257,23 +257,31 @@ jobs:
             echo "========================================"
             echo "🏥 Performing health check"
             echo "========================================"
-            
+      
             MAX_ATTEMPTS=20
             ATTEMPT=0
-            
+      
             while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-              ATTEMPT=$((ATTEMPT + 1))
-              echo "⏳ Attempt $ATTEMPT/$MAX_ATTEMPTS..."
-              
-              # 컨테이너 실행 확인
-              if ! docker-compose ps | grep -E "testbackend-app.*Up" > /dev/null; then
-                echo "❌ Container not running"
-                docker-compose ps
-                docker-compose logs --tail=50 app
-                exit 1
+              ATTEMPT=$((ATTEMPT+1))
+              echo "⏳ Health check attempt $ATTEMPT/$MAX_ATTEMPTS..."
+      
+              # 앱 컨테이너 ID 확인
+              APP_CONTAINER=$(docker-compose ps -q app)
+              if [ -z "$APP_CONTAINER" ]; then
+                echo "❌ App container not found yet"
+                sleep 10
+                continue
               fi
-              
-              # 헬스체크
+      
+              # 컨테이너 상태 확인
+              STATUS=$(docker inspect -f '{{.State.Status}}' $APP_CONTAINER)
+              if [ "$STATUS" != "running" ]; then
+                echo "❌ Container not running yet ($STATUS)"
+                sleep 10
+                continue
+              fi
+      
+              # 헬스체크 시도
               if curl -f http://localhost:8080/hello 2>/dev/null || curl -f http://localhost:8080 2>/dev/null; then
                 echo ""
                 echo "========================================"
@@ -301,15 +309,17 @@ jobs:
                 echo "========================================"
                 exit 0
               fi
-              
+      
+              echo "⏳ Waiting 10s before next attempt..."
               sleep 10
             done
-            
-            # 실패
+      
+            # 헬스체크 실패 시
             echo ""
             echo "========================================"
-            echo "❌ DEPLOYMENT FAILED"
+            echo "❌ DEPLOYMENT FAILED: Health check timed out"
             echo "========================================"
-            docker-compose logs
+            docker-compose logs --tail=50
             docker-compose ps -a
             exit 1
+
