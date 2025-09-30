@@ -16,6 +16,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 1. Gradle 캐시 복원
+      - name: Cache Gradle packages
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper/
+          key: gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -33,6 +44,8 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: ghcr.io/${{ github.repository }}/testbackend:latest
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/testbackend:latest
+          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/testbackend:latest,mode=max
 
   deploy-to-oci:
     needs: build-and-push
@@ -40,7 +53,7 @@ jobs:
 
     steps:
       - name: Deploy to OCI via SSH
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@v1.6.0   # 버전 업
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
