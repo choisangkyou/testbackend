@@ -53,11 +53,12 @@ jobs:
 
     steps:
       - name: Deploy to OCI via SSH
-        uses: appleboy/ssh-action@v1.6.0   # 버전 업
+        uses: appleboy/ssh-action@v1.2.0   
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
+          timeout: 30m
           script: |
             cd /home/${{ secrets.DEPLOY_USER }}/testbackend
             docker-compose down
