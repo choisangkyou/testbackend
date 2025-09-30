@@ -274,7 +274,7 @@ jobs:
               fi
               
               # 헬스체크
-              if curl -f http://localhost:8080/actuator/health 2>/dev/null || curl -f http://localhost:8080 2>/dev/null; then
+              if curl -f http://localhost:8080/hello 2>/dev/null || curl -f http://localhost:8080 2>/dev/null; then
                 echo ""
                 echo "========================================"
                 echo "✅ APPLICATION HEALTHY!"
