@@ -1,0 +1,7 @@
+package com.example.com.example.demo.repository
+
+import com.example.com.example.demo.entity.User
+import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.querydsl.QuerydslPredicateExecutor
+
+interface UserRepository : JpaRepository<User, Long>, QuerydslPredicateExecutor<User>

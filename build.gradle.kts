@@ -21,17 +21,36 @@ dependencies {
     implementation("org.springdoc:springdoc-openapi-ui:1.7.0")
     implementation("org.springdoc:springdoc-openapi-kotlin:1.7.0")
 
+    // Spring Data JPA
+    implementation("org.springframework.boot:spring-boot-starter-data-jpa")
 
+    // Kotlin Reflection (필요: @Autowired, @Component 등)
+    implementation("org.jetbrains.kotlin:kotlin-reflect")
+
+    // QueryDSL (Jakarta for Spring Boot 3.x)
+    implementation("com.querydsl:querydsl-jpa:5.0.0:jakarta")
+    kapt("com.querydsl:querydsl-apt:5.0.0:jakarta")
+
+    implementation("com.vladmihalcea:hibernate-types-60:2.21.1")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
+
+    // Database Driver (예: MySQL)
+    runtimeOnly("mysql:mysql-connector-java:8.0.33")
+
+    // Spring Security & JWT
+    implementation("org.springframework.boot:spring-boot-starter-security")
+    implementation("io.jsonwebtoken:jjwt-api:0.11.5")
+    runtimeOnly("io.jsonwebtoken:jjwt-impl:0.11.5")
+    runtimeOnly("io.jsonwebtoken:jjwt-jackson:0.11.5")
+
+    // Password Encoding
+    implementation("org.springframework.security:spring-security-crypto")
 
     //테스트
     testImplementation(kotlin("test"))
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.integration:spring-integration-test")
-//    testImplementation("org.testcontainers:testcontainers:1.19.0")
-//    testImplementation("org.testcontainers:junit-jupiter:1.19.0")
-//    testImplementation("org.testcontainers:mysql:1.19.0") // MySQL 예시
-//    testImplementation("io.mockk:mockk:1.13.7")
-//    testImplementation("org.springframework.security:spring-security-test")
+
 
 }
 
